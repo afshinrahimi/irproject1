@@ -87,7 +87,7 @@ class Indexer(object):
         for term in query:
             posting_list = self.inverted_index[term]
             df = posting_list.df
-            idf = np.log(self.N / df)
+            idf = np.log(self.N / (df+1))
             posts = posting_list.posts
             for post in posts:
                 docID = post[0]
@@ -145,23 +145,25 @@ tokeniser = NLTKWordTokenizer()
 indexer = Indexer(tokeniser, normaliser)
 query_processor = QueryProcessor(tokeniser, normaliser)
 base_dir='./blogs'
-index_file = os.path.join('./', 'index.fast')
+index_file = os.path.join('./', 'index.pkl')
 logging.info("getting file names...")
 docs = getfilenames(base_dir=base_dir)
 docs_length = len(docs)
 logging.info("Indexing %d docs in %s" %(docs_length, base_dir))
 docs_processed = 1
 tenpercent = int(docs_length / 10);
-for docID, filename in docs.iteritems():
-    if docs_processed % tenpercent == 0:
-        logging.info("\rprocessing " + str(10 * docs_processed / tenpercent) + "%")
-    docs_processed += 1
-    filename = os.path.join(base_dir, filename)
-    text = getContent(filename, encoding='latin1')
-    indexer.index(docID, text)
-
-indexer.dump(index_file)
-indexer.load(index_file)
+RELOAD = True
+if not RELOAD:
+    for docID, filename in docs.iteritems():
+        if docs_processed % tenpercent == 0:
+            logging.info("\rprocessing " + str(10 * docs_processed / tenpercent) + "%")
+        docs_processed += 1
+        filename = os.path.join(base_dir, filename)
+        text = getContent(filename, encoding='latin1')
+        indexer.index(docID, text)
+        indexer.dump(index_file)
+else:
+    indexer.load(index_file)
 query = "March of the Pinguins"
 query_terms = query_processor.process(query)
 results = indexer.search(query_terms)
