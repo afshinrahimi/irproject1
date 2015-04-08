@@ -97,7 +97,7 @@ class Indexer(object):
                 results[docID] += tfidf
         for docID in results:
             results[docID] = results[docID] / self.document_lengths[docID]
-        ranked_results = sorted(results.items(), key=lambda x:x[1])
+        ranked_results = sorted(results.items(), key=lambda x:x[1],reverse=True)
         return ranked_results
         
             
@@ -139,41 +139,85 @@ class NLTKWordTokenizer(object):
         pass
     def tokenize(self, text):
         return nltk.word_tokenize(text)
+
+def load_queries(query_file):
+    logging.info("loading queries...")
+    queries = {}
+    with codecs.open(query_file, mode='r', encoding=encoding) as inf:
+        for line in inf:
+            fields = line.split('\t')
+            queryID = int(fields[0])
+            query = fields[1]
+            queries[queryID] = query
+    return queries
+
+def dump_results(results_file, queries, query_results, docs):
+    with open(results_file, 'wb') as outf:
+        pickle.dump((queries, query_results, docs), outf)
+    
+def load_results(results_file):
+    with open(results_file, 'rb') as inf:
+        queries, query_results, docs = pickle.load(results_file)
+    return queries, query_results, docs
+
+
+
+def test_querying():
+    query = "March of the Pinguins"
+    query_terms = query_processor.process(query)
+    results = indexer.search(query_terms)
+    for result in results:
+        docID, score = result
+        docName = docs[docID]
+        print("DocID: %d DocName: %s Score: %0.2f" %(docID, docName, score))
+
+def print_a_file(docID):
+    docName = docs[docID]
+    filename = os.path.join(base_dir, docName)
+    print(getContent(filename))
+
+
+#global parameters
 logging.info("creating the normaliser and the tokeniser...")
+encoding = 'latin1'
 normaliser = Normaliser(EnglishStemmer(), nltk.corpus.stopwords.words('english'), dictionary=None)  
 tokeniser = NLTKWordTokenizer()
 indexer = Indexer(tokeniser, normaliser)
 query_processor = QueryProcessor(tokeniser, normaliser)
 base_dir='./blogs'
 index_file = os.path.join('./', 'index.pkl')
+results_file = os.path.join('./', 'results.pkl')
+query_file = './06.topics.851-900.final.txt'
 logging.info("getting file names...")
 docs = getfilenames(base_dir=base_dir)
 docs_length = len(docs)
 logging.info("Indexing %d docs in %s" %(docs_length, base_dir))
 docs_processed = 1
-tenpercent = int(docs_length / 10);
-RELOAD = True
-if not RELOAD:
-    for docID, filename in docs.iteritems():
-        if docs_processed % tenpercent == 0:
-            logging.info("\rprocessing " + str(10 * docs_processed / tenpercent) + "%")
-        docs_processed += 1
-        filename = os.path.join(base_dir, filename)
-        text = getContent(filename, encoding='latin1')
-        indexer.index(docID, text)
-        indexer.dump(index_file)
-else:
-    indexer.load(index_file)
-query = "March of the Pinguins"
-query_terms = query_processor.process(query)
-results = indexer.search(query_terms)
-for result in results:
-    docID, score = result
-    docName = docs[docID]
-    print("DocID: %d DocName: %s Score: %0.2f" %(docID, docName, score))
-def print_a_file(docID):
-    docName = docs[docID]
-    filename = os.path.join(base_dir, docName)
-    print(getContent(filename))
 
+
+def main():
+    RELOAD = True
+    if not RELOAD:
+        tenpercent = int(docs_length / 10);
+        for docID, filename in docs.iteritems():
+            if docs_processed % tenpercent == 0:
+                logging.info("\rprocessing " + str(10 * docs_processed / tenpercent) + "%")
+            docs_processed += 1
+            filename = os.path.join(base_dir, filename)
+            text = getContent(filename, encoding=encoding)
+            indexer.index(docID, text)
+            indexer.dump(index_file)
+    else:
+        indexer.load(index_file)
+
+    queries = load_queries(query_file)
+    query_results = {}
+    for queryID, query in queries.iteritems():
+        query_terms = query_processor.process(query)
+        results = indexer.search(query_terms)
+        query_results[queryID] = results
+    
+    dump_results(results_file, queries, query_results, docs)
+
+main()
 Tracer()()
