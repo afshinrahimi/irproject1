@@ -28,11 +28,15 @@ def getContent(filename, encoding='latin1'):
     return text
 
 class Normaliser(object):
-    def __init__(self, stemmer=None, stop_words=None, dictionary=None):
+    def __init__(self, stemmer=None, stop_words=None, dictionary=None, lower_case=True):
         self.stemmer = stemmer
         self.stop_words = stop_words
         self.dictionary = dictionary
+        self.lower_case = lower_case
+        
     def normalise(self, token):
+        if self.lower_case:
+            token = token.lower()
         if token in self.stop_words:
             return None
         if self.stemmer:
@@ -75,7 +79,7 @@ class Indexer(object):
         self.document_lengths[docID] = np.sqrt(self.document_lengths[docID])
     
     def dump(self, filename):
-        logging.info("logging index to %s" %(filename))
+        logging.info("dumping index to %s" %(filename))
         with open(filename, 'wb') as outf:
             pickle.dump((self.inverted_index, self.document_lengths, self.N), outf)
     def load(self, filename):
@@ -157,10 +161,19 @@ def dump_results(results_file, queries, query_results, docs):
     
 def load_results(results_file):
     with open(results_file, 'rb') as inf:
-        queries, query_results, docs = pickle.load(results_file)
+        queries, query_results, docs = pickle.load(inf)
     return queries, query_results, docs
 
-
+def load_relevant_docs(qrels_file):
+    query_relevant = defaultdict(list)
+    with codecs.open(qrels_file, 'r', encoding=encoding) as inf:
+        for line in inf:
+            fields = line.split('\t')
+            queryID = int(fields[0])
+            docName = fields[2]
+            docRelevance = int(fields[4].strip())
+            if docRelevance > 0:
+                query_relevant[queryID].append(docName)
 
 def test_querying():
     query = "March of the Pinguins"
@@ -180,37 +193,40 @@ def print_a_file(docID):
 #global parameters
 logging.info("creating the normaliser and the tokeniser...")
 encoding = 'latin1'
-normaliser = Normaliser(EnglishStemmer(), nltk.corpus.stopwords.words('english'), dictionary=None)  
+normaliser = Normaliser(stemmer=None, stop_words=nltk.corpus.stopwords.words('english'), dictionary=None, lower_case=True)  
 tokeniser = NLTKWordTokenizer()
 indexer = Indexer(tokeniser, normaliser)
 query_processor = QueryProcessor(tokeniser, normaliser)
 base_dir='./blogs'
 index_file = os.path.join('./', 'index.pkl')
-results_file = os.path.join('./', 'results.pkl')
-query_file = './06.topics.851-900.final.txt'
+results_file = os.path.join('./', 'results-stem.pkl')
+qrels_file = os.path.join('./', 'qrels.february')
+query_file = './06.topics.851-900.plain.final.txt'
 logging.info("getting file names...")
 docs = getfilenames(base_dir=base_dir)
 docs_length = len(docs)
-logging.info("Indexing %d docs in %s" %(docs_length, base_dir))
-docs_processed = 1
+
 
 
 def main():
-    RELOAD = True
+    queries = load_queries(query_file)
+    RELOAD = False
     if not RELOAD:
+        logging.info("Indexing %d docs in %s" %(docs_length, base_dir))
+        docs_processed = 1
         tenpercent = int(docs_length / 10);
         for docID, filename in docs.iteritems():
             if docs_processed % tenpercent == 0:
-                logging.info("\rprocessing " + str(10 * docs_processed / tenpercent) + "%")
+                logging.info("processing " + str(10 * docs_processed / tenpercent) + "%")
             docs_processed += 1
             filename = os.path.join(base_dir, filename)
             text = getContent(filename, encoding=encoding)
             indexer.index(docID, text)
-            indexer.dump(index_file)
+        indexer.dump(index_file)
     else:
         indexer.load(index_file)
 
-    queries = load_queries(query_file)
+    
     query_results = {}
     for queryID, query in queries.iteritems():
         query_terms = query_processor.process(query)
@@ -218,6 +234,11 @@ def main():
         query_results[queryID] = results
     
     dump_results(results_file, queries, query_results, docs)
+    
 
-main()
+#main()
+
+queries, query_results, docs = load_results(results_file)
+load_relevant_docs(qrels_file)
+
 Tracer()()
