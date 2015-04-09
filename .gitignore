@@ -8,3 +8,16 @@
 /06.topics.851-900.plain.final.txt
 /index-stem.pkl
 /results-stem.pkl
+/index-stem-logtf.pkl
+/index-nostem.pkl
+/index-nostem-logtf.pkl
+/Precision@100-stem.pdf
+/Precision@10-nostem.pdf
+/Precision@10-nostem-logtf.pdf
+/Precision@10-stem.pdf
+/Precision@10-stem-logtf.pdf
+/results-nostem.pkl
+/results-nostem-logtf.pkl
+/results-report.txt
+/results-report.txt~
+/results-stem-logtf.pkl

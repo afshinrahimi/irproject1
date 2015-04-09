@@ -14,7 +14,12 @@ from collections import defaultdict
 from nltk.stem.snowball import EnglishStemmer
 import pickle
 import logging
+import matplotlib.pyplot as plt
+from datetime import datetime
+import time
 logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+logging.info('script started at %s' %( str(datetime.now())))
+script_start_time = time.time()
 def getfilenames(base_dir):
     filenames = glob.glob(base_dir + '/*.txt')
     base_filenames = [os.path.basename(a_path) for a_path in filenames]
@@ -31,6 +36,8 @@ class Normaliser(object):
     def __init__(self, stemmer=None, stop_words=None, dictionary=None, lower_case=True):
         self.stemmer = stemmer
         self.stop_words = stop_words
+        print("The number of stop words is %d" %(len(self.stop_words)))
+        print("Stemmer is " + str(self.stemmer))
         self.dictionary = dictionary
         self.lower_case = lower_case
         
@@ -164,16 +171,23 @@ def load_results(results_file):
         queries, query_results, docs = pickle.load(inf)
     return queries, query_results, docs
 
-def load_relevant_docs(qrels_file):
+def load_relevant_docs(qrels_file, docname_id):
     query_relevant = defaultdict(list)
     with codecs.open(qrels_file, 'r', encoding=encoding) as inf:
+        not_found = 0
         for line in inf:
-            fields = line.split('\t')
+            fields = line.split(' ')
             queryID = int(fields[0])
-            docName = fields[2]
-            docRelevance = int(fields[4].strip())
+            docName = fields[2] + '.txt'
+            if docName not in docname_id:
+                not_found += 1
+                logging.debug("%d not in docname_id: %s query_id: %d  relevance %s" %(not_found, docName, queryID, fields[3].strip()))
+                continue
+            docID = docname_id[docName ]
+            docRelevance = int(fields[3].strip())
             if docRelevance > 0:
-                query_relevant[queryID].append(docName)
+                query_relevant[queryID].append(docID)
+    return query_relevant
 
 def test_querying():
     query = "March of the Pinguins"
@@ -189,17 +203,111 @@ def print_a_file(docID):
     filename = os.path.join(base_dir, docName)
     print(getContent(filename))
 
+def get_docname_id(docs):
+    docname_id = {}
+    for id, docName in docs.iteritems():
+        docname_id[docName] = id
+    return docname_id   
+def plot_numbers(x1, y1, plot_name):
+    plot_file =   './' + plot_name + '.pdf'
+    #x1 = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    #xs_labels = ['0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '1.0']
+    #ax = plt.gca()
+    #y1 = [25.0, 28.3, 30.7, 31.2, 33.1, 36.0, 37.6, 38.8, 38.9, 39.7]
+
+    #y_labels = ['GEOTEXT', 'Twitter-US', 'Twitter-WORLD']
+    p1 = plt.plot(x1, y1, 'k.')
+    #print np.mean(y1)
+
+    #plt.axis().xaxis.set_ticks(xs)
+    #plt.legend(('Mean Precision ' + suffix + ' = ' + str(np.mean(y1))), 'upper right', shadow=True)
+    #plt.text(5, 0, 'Mean Precision ' + suffix + ' = ' + str(np.mean(y1)))
+    plt.xlabel('Query Number')
+    plt.ylabel('Precision@10')
+    #ax.set_xticklabels(xs_labels)
+    plt.title('Mean Precision ' + suffix + ' = ' + str(np.mean(y1)))
+    #axis([0,2,-1,1])
+    #plt.show(block=True)
+    print "saving the plot in " + plot_file
+    plt.savefig(plot_file, format='pdf')
+
+
+def evaluate_precision_at_k(query_results, query_relevant, query=None, k=10):
+    query_precision_at_k = {}
+    for q, relevant in query_relevant.iteritems():
+        if query!=None:
+            if q!=query:
+                continue
+        if k > len(query_results[q]):
+            logging.warn("k %d is larger than result set size %d! k set to %d" %(k, len(query_results[q]), len(query_results[q])))
+            internal_k = len(query_results[q])
+        else:
+            internal_k = k
+        retrieved_k_docs = query_results[q][0:internal_k]
+        retrieved_k_docIDs = [docID for docID, score in retrieved_k_docs]
+        tp=[docID for docID in retrieved_k_docIDs if docID in relevant]
+        p = float(len(tp)) / internal_k 
+        query_precision_at_k[q] = p
+    if len(query_precision_at_k) == 1 and query!=None:
+        return query_precision_at_k[query]
+    logging.info("Average Precision in %d is %0.2f" %(k, np.mean(query_precision_at_k.values())))
+    return query_precision_at_k
+def evaluate_recall_at_k(query_results, query_relevant, k=10):
+    query_recall_at_k = {}
+    for q, relevant in query_relevant.iteritems():
+        if k > len(query_results[q]):
+            logging.warn("k %d is larger than result set size %d! k set to %d" %(k, len(query_results[q]), len(query_results[q])))
+            internal_k = len(query_results[q])
+        else:
+            internal_k = k
+        retrieved_k_docs = query_results[q][0:internal_k]
+        retrieved_k_docIDs = [docID for docID, score in retrieved_k_docs]
+        tp = [docID for docID in retrieved_k_docIDs if docID in relevant]
+        recall = float(len(tp)) / len(relevant)
+        query_recall_at_k[q] = recall
+    
+    logging.info("Average recall in %d is %0.2f" %(k, np.mean(query_recall_at_k.values())))
+    return query_recall_at_k
+
+def evaluate_map(query_results, query_relevant, depth_k=1000):
+    query_map = {}
+    for q, ret in query_results.iteritems():
+        ret_docIDs = [docID for docID, score in ret]
+        rel_docIDs = query_relevant[q]
+        docRank = 1
+        #m is the number of relevant documents found till now
+        m = 0.0
+        map_value = 0.0
+        for docID in ret_docIDs:
+            #document is relevant
+            if docID in rel_docIDs:
+                m += 1 
+                precision_k = evaluate_precision_at_k(query_results, query_relevant, query=q, k=docRank)
+                map_value += precision_k / m
+            
+            docRank += 1
+            if docRank > len(ret_docIDs) or docRank > depth_k:
+                break
+            
+        query_map[q] = map_value
+    logging.info("Mean Average Precision is %0.2f" %( np.mean(query_map.values())))
+    return query_map
+
+
 
 #global parameters
+suffix = 'nostem'
 logging.info("creating the normaliser and the tokeniser...")
 encoding = 'latin1'
-normaliser = Normaliser(stemmer=None, stop_words=nltk.corpus.stopwords.words('english'), dictionary=None, lower_case=True)  
+stemmer = EnglishStemmer()
+stemmer = None
+normaliser = Normaliser(stemmer=stemmer, stop_words=nltk.corpus.stopwords.words('english'), dictionary=None, lower_case=True)  
 tokeniser = NLTKWordTokenizer()
 indexer = Indexer(tokeniser, normaliser)
 query_processor = QueryProcessor(tokeniser, normaliser)
 base_dir='./blogs'
-index_file = os.path.join('./', 'index.pkl')
-results_file = os.path.join('./', 'results-stem.pkl')
+index_file = os.path.join('./', 'index-' + suffix +'.pkl')
+results_file = os.path.join('./', 'results-' + suffix + '.pkl')
 qrels_file = os.path.join('./', 'qrels.february')
 query_file = './06.topics.851-900.plain.final.txt'
 logging.info("getting file names...")
@@ -234,11 +342,19 @@ def main():
         query_results[queryID] = results
     
     dump_results(results_file, queries, query_results, docs)
-    
 
-#main()
-
+main()
 queries, query_results, docs = load_results(results_file)
-load_relevant_docs(qrels_file)
-
-Tracer()()
+docname_id = get_docname_id(docs)
+query_relevant = load_relevant_docs(qrels_file, docname_id)
+precision_at_10 = evaluate_precision_at_k(query_results=query_results, query_relevant=query_relevant, k=10, query=None)
+precision_at_100 = evaluate_precision_at_k(query_results=query_results, query_relevant=query_relevant, k=100, query=None)
+plot_numbers(x1=precision_at_10.keys(), y1=precision_at_10.values(), plot_name='Precision@10-'+ suffix)
+plot_numbers(x1=precision_at_100.keys(), y1=precision_at_100.values(), plot_name='Precision@100-'+ suffix)
+query_map = evaluate_map(query_results, query_relevant)
+query_recall_100 = evaluate_recall_at_k(query_results, query_relevant, k=100)
+query_recall_10 = evaluate_recall_at_k(query_results, query_relevant, k=10)
+#Tracer()()
+script_end_time = time.time()
+script_execution_hour = (script_end_time - script_start_time) / 60.0
+logging.info("the script execution  is %s minutes" %(str(script_execution_hour)))
